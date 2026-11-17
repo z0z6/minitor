@@ -70,7 +70,7 @@ export function createRclSource(def) {
       if (errors.length === queries.length) {
         const e = errors[0];
         throw Object.assign(new Error(e.network
-          ? `strona RCL nie odpowiada (${e.message}). RCL bywa niedostępny; projekty z tego okresu pojawią się przy pierwszym udanym skanie, o ile mieszczą się w oknie „dni wstecz”.`
+          ? `strona RCL jest teraz niedostępna: ${e.message}. Projekty z tego okresu pojawią się przy pierwszym udanym skanie, o ile mieszczą się w oknie „dni wstecz”.`
           : e.message), { cause: e });
       }
       if (!parsedAny) throw new Error('Nie rozpoznano żadnych wierszy na stronach RCL (możliwa zmiana układu strony)');
