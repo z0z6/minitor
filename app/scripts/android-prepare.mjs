@@ -4,9 +4,9 @@
 // Zmienne środowiskowe (opcjonalne):
 //   VERSION_CODE              numer kompilacji (w GitHub Actions: github.run_number)
 //   ANDROID_KEYSTORE_FILE     ścieżka do pliku .jks/.keystore (podpis wydania)
-//   ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+//   ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD  (czytane przez Gradle przy budowie)
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, cpSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, cpSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,17 +27,35 @@ let gradle = readFileSync(gradleFile, 'utf8');
 const code = Math.max(1, parseInt(process.env.VERSION_CODE || '1', 10));
 gradle = gradle.replace(/versionCode \d+/, `versionCode ${code}`).replace(/versionName "[^"]*"/, `versionName "${pkg.version}"`);
 
-// podpis wydania (gdy podano klucz)
+// Bezpieczeństwo: dane i klucze API nie trafiają do kopii zapasowej Google ani do `adb backup`,
+// a aplikacja nie łączy się po nieszyfrowanym HTTP.
+const manifestFile = path.join(android, 'app', 'src', 'main', 'AndroidManifest.xml');
+let manifest = readFileSync(manifestFile, 'utf8');
+manifest = manifest
+  .replace(/android:allowBackup="true"/, 'android:allowBackup="false"')
+  .replace(/<application(?![^>]*android:usesCleartextTraffic)/, '<application android:usesCleartextTraffic="false"')
+  .replace(/<application(?![^>]*android:fullBackupContent)/, '<application android:fullBackupContent="false"')
+  .replace(/<application(?![^>]*android:dataExtractionRules)/, '<application android:dataExtractionRules="@xml/data_extraction_rules"');
+if (!/android:allowBackup="false"/.test(manifest)) manifest = manifest.replace('<application', '<application android:allowBackup="false"');
+writeFileSync(manifestFile, manifest);
+mkdirSync(path.join(android, 'app', 'src', 'main', 'res', 'xml'), { recursive: true });
+writeFileSync(path.join(android, 'app', 'src', 'main', 'res', 'xml', 'data_extraction_rules.xml'), `<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+  <cloud-backup><exclude domain="root" /><exclude domain="file" /><exclude domain="database" /><exclude domain="sharedpref" /><exclude domain="external" /></cloud-backup>
+  <device-transfer><exclude domain="root" /><exclude domain="file" /><exclude domain="database" /><exclude domain="sharedpref" /><exclude domain="external" /></device-transfer>
+</data-extraction-rules>
+`);
+
+// podpis wydania (gdy podano klucz). Hasła czyta Gradle ze zmiennych środowiskowych, więc nie trafiają do plików projektu.
 const ks = process.env.ANDROID_KEYSTORE_FILE;
 if (ks && existsSync(ks) && !gradle.includes('signingConfigs {')) {
-  const q = (v) => JSON.stringify(String(v || ''));
   gradle = gradle.replace(/(\n\s*buildTypes \{)/, `
     signingConfigs {
         release {
-            storeFile file(${q(path.resolve(ks))})
-            storePassword ${q(process.env.ANDROID_KEYSTORE_PASSWORD)}
-            keyAlias ${q(process.env.ANDROID_KEY_ALIAS)}
-            keyPassword ${q(process.env.ANDROID_KEY_PASSWORD)}
+            storeFile file(System.getenv("ANDROID_KEYSTORE_FILE"))
+            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword System.getenv("ANDROID_KEY_PASSWORD")
         }
     }$1`);
   gradle = gradle.replace(/(release \{\s*\n\s*minifyEnabled false)/, '$1\n            signingConfig signingConfigs.release');

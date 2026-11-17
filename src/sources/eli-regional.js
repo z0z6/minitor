@@ -1,6 +1,5 @@
-import { addDays } from '../util.js';
+import { addDays, MAX_PDF_BYTES } from '../util.js';
 
-const MAX_PDF_BYTES = 6 * 1024 * 1024;
 const lower = (s) => String(s ?? '').toLowerCase();
 
 /**
@@ -73,7 +72,7 @@ export function createEliRegionalSource(def) {
     },
 
     async loadText(c, ctx) {
-      const buf = await ctx.http.buffer(c.url, { headers: { Accept: 'application/pdf' } });
+      const buf = await ctx.http.buffer(c.url, { headers: { Accept: 'application/pdf' }, maxBytes: MAX_PDF_BYTES });
       if (buf.length > MAX_PDF_BYTES) return { kind: 'none', note: 'PDF zbyt duży, analiza tylko na podstawie tytułu' };
       return { kind: 'pdf', base64: buf.toString('base64') };
     },

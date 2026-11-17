@@ -1,27 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import { runScan } from '../src/pipeline.js';
-import { createFileStore } from '../src/store/file.js';
 import { createMockAnalyzer, normalizeAnalysis } from '../src/analyze.js';
 import { renderReport, pluralZmiana } from '../src/report.js';
-import { fixtureHttp, NOW, loadCfg } from './helpers.js';
+import { fixtureHttp, NOW, loadCfg, memStore } from './helpers.js';
 
 async function setup() {
-  const dir = await mkdtemp(path.join(tmpdir(), 'sosw-'));
-  const sent = [];
-  return {
-    cfg: await loadCfg(), http: await fixtureHttp(), store: createFileStore(path.join(dir, 's.json')),
-    analyzer: createMockAnalyzer(), mailer: { send: async (r) => { sent.push(r); } }, sent,
-  };
+  return { cfg: await loadCfg(), http: await fixtureHttp(), store: memStore(), analyzer: createMockAnalyzer() };
 }
 
-test('potok: wykrywa zmiany, nadaje priorytety, wysyła jeden raport', async () => {
+test('potok: wykrywa zmiany, nadaje priorytety, buduje jeden raport', async () => {
   const s = await setup();
   const r = await runScan({ ...s, now: NOW });
-  assert.equal(r.skipped, false);
   const byKey = Object.fromEntries(r.changes.map((c) => [c.key, c]));
   assert.ok(byKey['DU/2026/1900'], 'rozporządzenie MEN');
   assert.equal(byKey['DU/2026/1900'].priority, 'hi');
@@ -30,8 +20,8 @@ test('potok: wykrywa zmiany, nadaje priorytety, wysyła jeden raport', async () 
   assert.equal(byKey['DU/2026/1950'].category, 'administracyjne');
   assert.ok(!byKey['DU/2026/1901'], 'znaki drogowe odfiltrowane');
   assert.ok(Object.keys(byKey).some((k) => k.startsWith('rss:men-komunikaty')), 'projekt z MEN');
-  assert.equal(s.sent.length, 1);
-  assert.match(s.sent[0].subject, /Monitor prawa/);
+  assert.match(r.report.subject, /Monitor prawa/);
+  assert.ok(await s.store.hasRun('2026-10-02'));
 });
 
 test('potok: awaria jednego źródła nie zatrzymuje reszty i trafia do raportu', async () => {
@@ -40,15 +30,15 @@ test('potok: awaria jednego źródła nie zatrzymuje reszty i trafia do raportu'
   const bad = r.health.find((h) => h.id === 'men-wiadomosci');
   assert.equal(bad.ok, false);
   assert.ok(r.health.find((h) => h.id === 'eli-du').ok);
-  assert.match(s.sent[0].text, /źródła z błędem/);
+  assert.match(r.report.text, /źródła z błędem/);
 });
 
-test('potok: drugi przebieg tego samego dnia jest pomijany (idempotencja)', async () => {
+test('potok: drugi przebieg tego samego dnia nie dubluje zmian, a raport nadal obejmuje cały dzień', async () => {
   const s = await setup();
-  await runScan({ ...s, now: NOW });
+  const first = await runScan({ ...s, now: NOW });
   const again = await runScan({ ...s, now: new Date('2026-10-02T16:40:00Z') });
-  assert.equal(again.skipped, true);
-  assert.equal(s.sent.length, 1);
+  assert.equal(again.summary.reviewed, 0);
+  assert.equal(again.changes.length, first.changes.length);
 });
 
 test('potok: następnego dnia te same akty nie są zgłaszane ponownie, ale terminy wracają jako przypomnienie', async () => {
@@ -58,17 +48,6 @@ test('potok: następnego dnia te same akty nie są zgłaszane ponownie, ale term
   assert.equal(next.changes.length, 0);
   assert.match(next.report.subject, /bez zmian/);
   assert.match(next.report.text, /Zbliżające się terminy/);
-});
-
-test('potok: błąd wysyłki nie oznacza dnia jako wykonanego, a ponowienie nie gubi zmian', async () => {
-  const s = await setup();
-  let fail = true;
-  s.mailer = { send: async (r) => { if (fail) throw new Error('Resend 500'); s.sent.push(r); } };
-  await assert.rejects(runScan({ ...s, now: NOW }), /Resend 500/);
-  fail = false;
-  const retry = await runScan({ ...s, now: new Date('2026-10-02T16:40:00Z') });
-  assert.equal(retry.skipped, false);
-  assert.ok(retry.changes.length >= 3);
 });
 
 test('analiza: odpowiedź modelu jest czyszczona (role i dokumenty spoza listy, zła data)', async () => {
@@ -99,4 +78,25 @@ test('raport: treści z internetu są escapowane w HTML', async () => {
 
 test('odmiana: 1 zmiana, 2 zmiany, 5 zmian, 12 zmian, 22 zmiany', () => {
   assert.deepEqual([1, 2, 5, 12, 22, 25].map(pluralZmiana), ['zmiana', 'zmiany', 'zmian', 'zmian', 'zmiany', 'zmian']);
+});
+
+test('raport: adres inny niż http(s) nie trafia do linku', async () => {
+  const cfg = await loadCfg();
+  const { html, text } = renderReport({
+    cfg, today: '2026-10-02',
+    changes: [{ key: 'k', title: 'Akt', url: 'javascript:alert(1)', source_name: 'S', priority: 'hi', status: 'obowiazuje', summary: 's', tasks: [], documents: [], priority_reasons: [] }],
+  });
+  assert.ok(!html.includes('javascript:'));
+  assert.ok(!text.includes('javascript:'));
+});
+
+test('potok: źródła są pobierane równolegle', async () => {
+  const s = await setup();
+  let active = 0;
+  let peak = 0;
+  const base = s.http;
+  const slow = (fn) => async (...a) => { active++; peak = Math.max(peak, active); await new Promise((r) => setTimeout(r, 5)); try { return await fn(...a); } finally { active--; } };
+  s.http = { ...base, json: slow(base.json), text: slow(base.text) };
+  await runScan({ ...s, now: NOW });
+  assert.ok(peak > 1, `oczekiwano równoległych zapytań, było ${peak}`);
 });

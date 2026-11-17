@@ -8,16 +8,27 @@ on:
       - 'app/**'
       - 'src/**'
       - 'config/**'
+      - 'test/**'
+      - 'package*.json'
       - '.github/workflows/app.yml'
   pull_request:
     paths:
       - 'app/**'
       - 'src/**'
       - 'config/**'
+      - 'test/**'
+      - 'package*.json'
+      - '.github/workflows/app.yml'
   workflow_dispatch:
 
+# Najmniejsze uprawnienia: zapis (wydanie) dostaje tylko zadanie release.
 permissions:
-  contents: write
+  contents: read
+
+# Nowy push anuluje starszy, jeszcze trwający przebieg tej samej gałęzi (oszczędza minuty Actions).
+concurrency:
+  group: app-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 defaults:
   run:
@@ -28,11 +39,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            app/package-lock.json
+      - name: Testy silnika (src/) i audyt jego zależności
+        working-directory: .
+        run: |
+          npm ci
+          npm test
+          npm audit --omit=dev --audit-level=moderate
       - run: npm ci
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
@@ -43,6 +64,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -61,6 +84,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -79,6 +104,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -107,12 +134,16 @@ jobs:
         run: npm run android:prepare
         env:
           VERSION_CODE: ${{ github.run_number }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       - name: Budowa APK
         working-directory: app/android
         run: ./gradlew --no-daemon "$GRADLE_TASK"
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - name: Usunięcie klucza podpisu
+        if: always()
+        run: rm -f "$RUNNER_TEMP/monitor.keystore"
       - name: Nazwa pliku
         run: |
           V=$(node -p "require('./package.json').version")
@@ -130,6 +161,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [linux, windows, android]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     defaults:
       run:
         working-directory: .

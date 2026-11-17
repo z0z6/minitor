@@ -109,7 +109,7 @@ async function loadSecrets() {
   state.secrets.gemini = await P.hasSecret('gemini');
 }
 
-/** Zapisuje zmianę ustawień placówki (warstwa nad config/default.json, jak w panelu admina). */
+/** Zapisuje zmianę ustawień placówki (warstwa nad config/default.json). */
 async function saveCfg(patch, quiet) {
   try {
     const cur = (await state.monitor.store.getConfig()) || {};

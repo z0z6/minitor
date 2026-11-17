@@ -8,7 +8,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/projektnumer4/monitor.git",
+    "url": "https://github.com/z0z6/minitor.git",
     "directory": "app"
   },
   "private": true,
@@ -33,7 +33,7 @@
     "electron": "^45.3.3",
     "electron-builder": "^26.0.0",
     "esbuild": "^0.28.2",
-    "fast-xml-parser": "^4.5.0"
+    "fast-xml-parser": "^5.12.1"
   },
   "build": {
     "appId": "pl.projektnumer4.monitorprawa",
