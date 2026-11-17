@@ -93,3 +93,5 @@ oraz jakość analizy AI na prawdziwych aktach: przez pierwsze tygodnie czytaj s
 - Ustawa o bardzo długim tekście jest obcinana do ok. 70 tys. znaków, PDF powyżej 6 MB jest oceniany tylko po tytule i metadanych (raport to zaznacza).
 - Akty bez słów kluczowych w tytule i bez odwołania do aktów obserwowanych mogą zostać pominięte. Rozszerzaj `keywords` i `watchedActs`.
 - Android nie pozwala na niezawodny skan w tle, dlatego skan rusza przy otwarciu aplikacji.
+- RCL (legislacja.rcl.gov.pl) bywa niedostępny i nie odpowiada na połączenia z serwerów za granicą (np. GitHub Actions). Aplikacja rezygnuje z niego po ok. 40 s i zgłasza to w raporcie; reszta skanu działa normalnie.
+- Błąd analizy AI (brak logowania, limit planu, zły klucz) nie jest błędem źródła: analiza czeka do następnego skanu, a nieprzeanalizowane pozycje wracają automatycznie.

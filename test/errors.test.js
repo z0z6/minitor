@@ -53,8 +53,8 @@ test('RCL: nieudane pojedyncze wyszukiwanie daje uwagę, a nie błąd źródła'
   assert.match(items.warning, /1 z 2/);
 });
 
-test('RCL: gdy żadne wyszukiwanie nie działa, komunikat mówi, że strona RCL nie odpowiada', async () => {
+test('RCL: gdy żadne wyszukiwanie nie działa, komunikat mówi, że strona RCL jest niedostępna', async () => {
   const http = { text: async () => { throw Object.assign(new Error('serwer nie odpowiada [net::ERR_CONNECTION_TIMED_OUT]'), { network: true }); } };
   const src = createRclSource({ id: 'rcl', name: 'RCL', queries: ['a', 'b'] });
-  await assert.rejects(src.listNew({ http, today: '2026-10-02', lookbackDays: 7 }), /strona RCL nie odpowiada/);
+  await assert.rejects(src.listNew({ http, today: '2026-10-02', lookbackDays: 7 }), /strona RCL jest teraz niedostępna/);
 });
