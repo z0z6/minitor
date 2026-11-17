@@ -1,0 +1,25 @@
+name: Diagnostyka źródeł (tymczasowa)
+on:
+  push:
+    branches: [diag-zrodla]
+permissions:
+  contents: read
+jobs:
+  electron:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null
+      - working-directory: app
+        run: npm ci && npm run build:engine
+      - name: Aplikacja Electron na prawdziwym internecie
+        working-directory: app
+        run: |
+          mkdir -p /tmp/md && echo '{"ai":{"provider":"rules"}}' > /tmp/md/settings.json
+          STEP="diag=$(node -e "process.stdout.write(encodeURIComponent(require('fs').readFileSync('../diag/steps.js','utf8')))")"
+          MONITOR_DATA_DIR=/tmp/md APP_SHOTS=/tmp/shots APP_STEPS="$STEP" timeout 900 xvfb-run -a npx electron . --no-sandbox --disable-gpu 2>&1 | grep -v -i "dbus\|gpu\|libva\|viz" || true

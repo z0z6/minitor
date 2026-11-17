@@ -4,6 +4,10 @@ const API_URL = 'https://api.anthropic.com/v1/messages';
 export const DEFAULT_MODEL = 'claude-sonnet-5-5';
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash';
 
+// API modeli odsyła odpowiedź dopiero po zakończeniu analizy (bez strumieniowania), co przy długim PDF trwa minuty.
+// Krótkie limity z pobierania stron przerywałyby analizę w połowie i płaciłoby się za nią kilka razy.
+export const AI_REQUEST = { timeoutMs: 5 * 60 * 1000, connectTimeoutMs: 5 * 60 * 1000 };
+
 const TOOL = {
   name: 'report_analysis',
   description: 'Zwraca ustrukturyzowaną ocenę wpływu aktu prawnego na placówkę.',
@@ -164,6 +168,7 @@ export function createClaudeAnalyzer({ apiKey, model = DEFAULT_MODEL, http }) {
         messages: [{ role: 'user', content: buildUserContent(c, t, today) }],
       };
       const res = await http.request(API_URL, {
+        ...AI_REQUEST,
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify(body),
@@ -259,6 +264,7 @@ export function createGeminiAnalyzer({ apiKey, model = DEFAULT_GEMINI_MODEL, htt
         generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: 8192 },
       };
       const res = await http.request(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        ...AI_REQUEST,
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify(body),

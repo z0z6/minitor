@@ -122,6 +122,23 @@ test('analizator Claude Code: PDF trafia jako plik, wynik jest normalizowany', a
   assert.strictEqual(JSON.stringify(a.roles.map((r) => r.role)), '["Dyrektor"]');
 });
 
+test('zbyt duży plik z procesu głównego: jeden błąd, bez ponawiania', async () => {
+  const E = loadEngine();
+  const fx = fixturePlatform(E);
+  let calls = 0;
+  fx.platform.fetch = async () => { calls++; return { status: 0, headers: {}, tooLarge: true, error: 'plik zbyt duży (40 MB)' }; };
+  const m = E.createMonitor({ platform: fx.platform, getSettings: () => fx.settings });
+  await assert.rejects(() => m.http.buffer('https://api.test/a.pdf'), /zbyt duży/);
+  assert.strictEqual(calls, 1);
+});
+
+test('skan bez klucza API kończy się czytelnym błędem, zanim cokolwiek pobierze', async () => {
+  const E = loadEngine();
+  const fx = fixturePlatform(E, { settings: { ai: { provider: 'claude' } } });
+  const m = E.createMonitor({ platform: fx.platform, getSettings: () => fx.settings });
+  await assert.rejects(() => m.scan({ now: '2026-10-02T15:40:00Z' }), /klucza API Claude/);
+});
+
 test('import i eksport kopii danych', async () => {
   const E = loadEngine();
   const fx = fixturePlatform(E);

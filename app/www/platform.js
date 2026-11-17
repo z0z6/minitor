@@ -60,7 +60,7 @@
         url, method: o.method || 'GET', headers: o.headers || {},
         data: o.body != null ? (typeof o.body === 'string' ? o.body : JSON.stringify(o.body)) : undefined,
         responseType: o.binary ? 'arraybuffer' : 'text',
-        connectTimeout: o.timeoutMs || 45000, readTimeout: o.timeoutMs || 45000,
+        connectTimeout: o.connectTimeoutMs || 20000, readTimeout: o.timeoutMs || 90000,
       });
       if (o.binary && r.status >= 200 && r.status < 300) return { status: r.status, headers: r.headers || {}, base64: r.data };
       return { status: r.status, headers: r.headers || {}, text: typeof r.data === 'string' ? r.data : JSON.stringify(r.data) };

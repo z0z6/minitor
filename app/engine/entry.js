@@ -48,7 +48,14 @@ export function createClaudeCodeAnalyzer({ run, model = 'sonnet' }) {
  */
 export function createMonitor({ platform, getSettings }) {
   const store = createStore({ load: () => platform.loadState(), save: (json) => platform.saveState(json) });
-  const http = createHttp({ fetchImpl: async (url, o) => makeResponse(await platform.fetch(url, o)) });
+  const http = createHttp({
+    fetchImpl: async (url, o) => {
+      const r = await platform.fetch(url, o);
+      // Proces główny zgłasza zbyt duży plik wynikiem, a nie wyjątkiem, żeby nie zgubić tej informacji po drodze.
+      if (r && r.tooLarge) throw Object.assign(new Error(`${r.error} dla ${url}`), { tooLarge: true });
+      return makeResponse(r);
+    },
+  });
   let running = null;
   const listeners = new Set();
   const emit = (ev) => listeners.forEach((fn) => { try { fn(ev); } catch (e) { console.error(e); } });
@@ -104,7 +111,10 @@ export function createMonitor({ platform, getSettings }) {
         const fresh = result.changes.filter((c) => !before.has(c.key));
         const bad = result.health.filter((h) => !h.ok);
         await store.log({ kind: 'scan', reason, analyzer: an.name, fresh: fresh.length, errors: bad.length, lines: lines.slice(-80) });
-        const summary = { date: today, fresh, health: result.health, analyzer: an.name, reviewed: result.summary.reviewed };
+        const summary = { date: today, fresh, health: result.health, ai: result.ai, analyzer: an.name, reviewed: result.summary.reviewed };
+        if (result.ai.stopped) {
+          platform.notify?.('Monitor prawa: analiza AI wstrzymana', `${result.ai.stopped.slice(0, 180)}. Pozycje wrócą przy następnym skanie.`);
+        }
         if (fresh.length) {
           const hi = fresh.filter((c) => c.priority === 'hi').length;
           platform.notify?.('Monitor prawa: nowe zmiany', `${fresh.length} ${pl(fresh.length, 'nowa zmiana', 'nowe zmiany', 'nowych zmian')}${hi ? `, w tym ${hi} o wysokim priorytecie` : ''}.`);
@@ -142,17 +152,22 @@ export function createMonitor({ platform, getSettings }) {
   async function checkSources() {
     const cfg = await config();
     const today = localParts(new Date(), cfg.school.timezone).date;
+    http.resetHosts();
     const out = [];
-    for (const s of buildSources(cfg)) {
+    // Równolegle: jedno wolne źródło nie wstrzymuje pozostałych.
+    await Promise.all(buildSources(cfg).map(async (s) => {
+      let r;
       try {
         const items = await s.listNew({ http, today, now: new Date(), lookbackDays: cfg.schedule.lookbackDays, cfg });
-        out.push({ id: s.id, name: s.name, ok: true, count: items.length, sample: items[0]?.title ?? '' });
+        r = { id: s.id, name: s.name, ok: true, count: items.length, sample: items[0]?.title ?? '', warn: items.warning || null };
       } catch (e) {
-        out.push({ id: s.id, name: s.name, ok: false, error: e.message });
+        r = { id: s.id, name: s.name, ok: false, error: e.message };
       }
-      emit({ type: 'check', results: out });
-    }
-    return out;
+      out.push(r);
+      emit({ type: 'check', results: [...out] });
+    }));
+    const order = new Map(cfg.sources.map((s, i) => [s.id, i]));
+    return out.sort((a, b) => order.get(a.id) - order.get(b.id));
   }
 
   return {

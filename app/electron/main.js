@@ -152,7 +152,7 @@ async function readLimited(res, limit) {
   return Buffer.concat(chunks.map((c) => Buffer.from(c)), total);
 }
 
-async function httpFetch(url, { method = 'GET', headers = {}, body, binary = false, timeoutMs = 45000, maxBytes } = {}) {
+async function httpFetch(url, { method = 'GET', headers = {}, body, binary = false, timeoutMs = 90000, connectTimeoutMs = 20000, maxBytes } = {}) {
   let u;
   try { u = new URL(url); } catch (_) { throw new Error('Niepoprawny adres'); }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('Dozwolone są tylko adresy http(s)');
@@ -160,11 +160,18 @@ async function httpFetch(url, { method = 'GET', headers = {}, body, binary = fal
   const m = String(method).toUpperCase();
   if (!METHODS.has(m)) throw new Error('Niedozwolona metoda HTTP');
   const filled = fillSecrets(url, headers);
+  const clamp = (v, d) => Math.min(Math.max(Number(v) || d, 1000), 10 * 60 * 1000);
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), Math.min(Math.max(Number(timeoutMs) || 45000, 1000), 10 * 60 * 1000));
+  // Dwa limity: na pierwszą odpowiedź serwera (martwy serwer wykrywamy szybko) i na całe pobranie (duże PDF-y).
+  let phase = 'connect';
+  const connectMs = clamp(connectTimeoutMs, 20000);
+  const connectTimer = setTimeout(() => ctl.abort(), connectMs);
+  const timer = setTimeout(() => ctl.abort(), clamp(timeoutMs, 90000));
   try {
     // Zapytanie z kluczem API nie może pójść za przekierowaniem: klucz trafiłby pod inny adres.
     const res = await net.fetch(url, { method: m, headers: filled.headers, body, signal: ctl.signal, redirect: filled.secret ? 'error' : 'follow' });
+    phase = 'body';
+    clearTimeout(connectTimer);
     if (res.redirected && isPrivateHost(new URL(res.url).hostname)) throw new Error('Przekierowanie na adres lokalny zostało zablokowane');
     const h = {};
     res.headers.forEach((v, k) => { h[k] = v; });
@@ -174,9 +181,13 @@ async function httpFetch(url, { method = 'GET', headers = {}, body, binary = fal
     if (binary && res.ok) return { status: res.status, headers: h, bytes: new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) };
     return { status: res.status, headers: h, text: buf.toString('utf8') };
   } catch (e) {
-    if (e.name === 'AbortError') throw new Error(`przekroczono limit czasu ${timeoutMs} ms`);
+    if (e.tooLarge) return { status: 0, headers: {}, tooLarge: true, error: e.message };
+    if (e.name === 'AbortError' || ctl.signal.aborted) {
+      throw new Error(phase === 'connect' ? `brak odpowiedzi serwera w ciągu ${Math.round(connectMs / 1000)} s` : `przekroczono limit czasu ${timeoutMs} ms`);
+    }
     throw new Error(e.message || String(e));
   } finally {
+    clearTimeout(connectTimer);
     clearTimeout(timer);
   }
 }

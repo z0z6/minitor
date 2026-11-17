@@ -5,22 +5,31 @@ import { createHttp } from './http.js';
 
 /** fetch z Node z limitem czasu i limitem rozmiaru odpowiedzi. */
 export function nodeFetch(fetchFn = globalThis.fetch) {
-  return async (url, { method, headers, body, timeoutMs = 45000, maxBytes } = {}) => {
+  return async (url, { method, headers, body, timeoutMs = 90000, connectTimeoutMs = 20000, maxBytes } = {}) => {
     const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    let phase = 'connect';
+    const connectTimer = setTimeout(() => ctl.abort(), connectTimeoutMs);
+    const totalTimer = setTimeout(() => ctl.abort(), timeoutMs);
     try {
       const res = await fetchFn(url, { method, headers, body, signal: ctl.signal });
+      phase = 'body';
+      clearTimeout(connectTimer);
       const len = Number(res.headers?.get?.('content-length') || 0);
       if (maxBytes && len > maxBytes) {
         ctl.abort();
         throw Object.assign(new Error(`plik zbyt duży (${Math.round(len / 1048576)} MB), analiza tylko na podstawie metadanych`), { tooLarge: true });
       }
-      return res;
+      // Treść czytamy tutaj, żeby limit czasu objął też pobieranie (później timer jest już wyłączony).
+      const buf = await res.arrayBuffer();
+      return new Response(buf, { status: res.status, statusText: res.statusText, headers: res.headers });
     } catch (e) {
-      if (e.name === 'AbortError') throw new Error(`przekroczono limit czasu ${timeoutMs} ms`);
+      if (e.name === 'AbortError') {
+        throw new Error(phase === 'connect' ? `brak odpowiedzi serwera w ciągu ${Math.round(connectTimeoutMs / 1000)} s` : `przekroczono limit czasu ${timeoutMs} ms`);
+      }
       throw e;
     } finally {
-      clearTimeout(timer);
+      clearTimeout(connectTimer);
+      clearTimeout(totalTimer);
     }
   };
 }
