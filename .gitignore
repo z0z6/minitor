@@ -1,0 +1,17 @@
+node_modules/
+out/
+.data/
+*.log
+
+# aplikacja: pliki generowane przy budowie
+app/www/engine.js
+app/www/capacitor.js
+app/www/fonts/
+app/dist/
+app/android/
+
+# klucze i sekrety nigdy nie trafiają do repozytorium
+*.keystore
+*.jks
+.env
+.env.*

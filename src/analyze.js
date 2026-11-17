@@ -1,7 +1,8 @@
 import { isoOrNull } from './util.js';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
-const DEFAULT_MODEL = 'claude-sonnet-5-5';
+export const DEFAULT_MODEL = 'claude-sonnet-5-5';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash';
 
 const TOOL = {
   name: 'report_analysis',
@@ -149,8 +150,8 @@ export function normalizeAnalysis(raw, cfg) {
 }
 
 /** Analizator oparty na API Claude (wymuszone wywołanie narzędzia = gwarantowany JSON). */
-export function createClaudeAnalyzer({ apiKey, model = process.env.ANTHROPIC_MODEL || DEFAULT_MODEL, http }) {
-  if (!apiKey) throw new Error('Brak ANTHROPIC_API_KEY');
+export function createClaudeAnalyzer({ apiKey, model = DEFAULT_MODEL, http }) {
+  if (!apiKey) throw new Error('Brak klucza API Claude');
   return {
     name: `claude:${model}`,
     async analyze(c, t, _score, cfg, today) {
@@ -240,8 +241,8 @@ export function parseJsonLoose(text) {
  * Analizator Google Gemini. Ma darmowy poziom w Google AI Studio (klucz bez karty płatniczej).
  * Limity darmowego poziomu bywają niskie, więc analizy są rozłożone w czasie (minIntervalMs).
  */
-export function createGeminiAnalyzer({ apiKey, model = process.env.GEMINI_MODEL || 'gemini-3.5-flash', http, minIntervalMs = 5000 }) {
-  if (!apiKey) throw new Error('Brak GEMINI_API_KEY');
+export function createGeminiAnalyzer({ apiKey, model = DEFAULT_GEMINI_MODEL, http, minIntervalMs = 5000 }) {
+  if (!apiKey) throw new Error('Brak klucza API Gemini');
   let last = 0;
   return {
     name: `gemini:${model}`,
@@ -323,14 +324,4 @@ export function createRulesAnalyzer() {
       }, cfg);
     },
   };
-}
-
-/** Wybór analizatora: AI_PROVIDER (gemini | claude | rules) albo automatycznie według dostępnych kluczy. */
-export function createAnalyzerFromEnv({ env = process.env, http }) {
-  const provider = (env.AI_PROVIDER || '').toLowerCase()
-    || (env.GEMINI_API_KEY ? 'gemini' : env.ANTHROPIC_API_KEY ? 'claude' : 'rules');
-  if (provider === 'gemini') return createGeminiAnalyzer({ apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL || undefined, http });
-  if (provider === 'claude') return createClaudeAnalyzer({ apiKey: env.ANTHROPIC_API_KEY, model: env.ANTHROPIC_MODEL || undefined, http });
-  if (provider === 'rules') return createRulesAnalyzer();
-  throw new Error(`Nieznany AI_PROVIDER: ${provider} (dozwolone: gemini, claude, rules)`);
 }

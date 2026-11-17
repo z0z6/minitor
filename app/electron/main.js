@@ -8,7 +8,7 @@ const fs = require('fs');
 const os = require('os');
 
 const { ClaudeAccount } = require('./claude-account');
-const { ClaudeCodeProvider, findClaude } = require('./ai/providers');
+const { ClaudeCodeProvider, findClaude, isClaudeBinary } = require('./ai/providers');
 
 const APP_NAME = 'Monitor prawa';
 app.setName(APP_NAME);
@@ -18,7 +18,7 @@ if (process.platform === 'win32') app.setAppUserModelId('pl.projektnumer4.monito
 // Wersja portable (Windows): dane obok pliku .exe
 const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
 const dataDir = process.env.MONITOR_DATA_DIR || (portableDir ? path.join(portableDir, `${APP_NAME} - dane`) : path.join(app.getPath('userData'), 'dane'));
-fs.mkdirSync(dataDir, { recursive: true });
+fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
 
 if (!process.env.APP_SHOTS && !app.requestSingleInstanceLock()) app.quit();
 
@@ -31,11 +31,19 @@ let account = null;
 const KV_NAMES = new Set(['state', 'settings']);
 const kvFile = (name) => path.join(dataDir, `${name}.json`);
 
+// Zapis atomowy: nowy plik powstaje obok, poprzednia wersja zostaje jako .bak (zmiana nazwy, bez kopiowania danych).
+// Zapisy do jednego pliku idą po kolei, żeby dwa równoległe nie nadpisały się nawzajem.
+const writeQueues = new Map();
 function writeAtomic(file, text) {
-  const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, text);
-  try { if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak`); } catch (_) { /* kopia zapasowa niekonieczna */ }
-  fs.renameSync(tmp, file);
+  const run = async () => {
+    const tmp = `${file}.tmp`;
+    await fs.promises.writeFile(tmp, text, { mode: 0o600 });
+    try { await fs.promises.rename(file, `${file}.bak`); } catch (_) { /* pierwszy zapis: brak poprzedniej wersji */ }
+    await fs.promises.rename(tmp, file);
+  };
+  const next = (writeQueues.get(file) || Promise.resolve()).then(run, run);
+  writeQueues.set(file, next.catch(() => {}));
+  return next;
 }
 
 function kvGet(name) {
@@ -46,18 +54,25 @@ function kvGet(name) {
   return null;
 }
 
-function kvSet(name, json) {
+async function kvSet(name, json) {
   if (!KV_NAMES.has(name)) throw new Error('Nieznany magazyn');
-  JSON.parse(json); // walidacja
-  writeAtomic(kvFile(name), json);
+  if (typeof json !== 'string' || json.length > 200 * 1024 * 1024) throw new Error('Niepoprawne dane');
+  JSON.parse(json); // walidacja: na dysk trafia wyłącznie poprawny JSON
+  await writeAtomic(kvFile(name), json);
   return true;
 }
 
 const SETTINGS_DEFAULTS = { ai: { provider: 'claude-code', model: 'sonnet', claudePath: '' }, ui: { theme: 'system' }, app: { runInBackground: true, autostart: false, notifications: true } };
+// Model i ścieżka programu trafiają do wiersza poleceń, więc przyjmujemy tylko bezpieczne wartości
+// (na Windows plik claude.cmd uruchamia się przez powłokę, gdzie znaki & | ^ " miałyby specjalne znaczenie).
+const SAFE_MODEL = /^[A-Za-z0-9._:-]{1,64}$/;
 function settings() {
   const s = kvGet('settings') || {};
+  const ai = { ...SETTINGS_DEFAULTS.ai, ...(s.ai || {}) };
+  if (!SAFE_MODEL.test(String(ai.model))) ai.model = SETTINGS_DEFAULTS.ai.model;
+  if (ai.claudePath && !isClaudeBinary(ai.claudePath)) ai.claudePath = '';
   return {
-    ai: { ...SETTINGS_DEFAULTS.ai, ...(s.ai || {}) },
+    ai,
     ui: { ...SETTINGS_DEFAULTS.ui, ...(s.ui || {}) },
     app: { ...SETTINGS_DEFAULTS.app, ...(s.app || {}) },
   };
@@ -82,36 +97,82 @@ function setSecret(name, value) {
   if (!SECRET_HOSTS[name]) throw new Error('Nieznany klucz');
   const v = String(value || '').trim();
   if (!v) { try { fs.unlinkSync(secretFile(name)); } catch (_) { /* brak */ } return false; }
-  if (safeStorage.isEncryptionAvailable()) fs.writeFileSync(secretFile(name), safeStorage.encryptString(v));
-  else fs.writeFileSync(secretFile(name), 'b64:' + Buffer.from(v, 'utf8').toString('base64'));
+  // Bez systemowego magazynu kluczy (np. Linux bez keyringa) klucz jest tylko zakodowany: chroni go wtedy
+  // wyłącznie dostęp do konta użytkownika (plik z prawami 0600).
+  const data = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(v) : 'b64:' + Buffer.from(v, 'utf8').toString('base64');
+  fs.writeFileSync(secretFile(name), data, { mode: 0o600 });
   return true;
 }
 
 function fillSecrets(url, headers) {
-  const host = new URL(url).hostname;
+  const u = new URL(url);
   const out = {};
+  let secret = false;
   for (const [k, v] of Object.entries(headers || {})) {
-    const m = typeof v === 'string' && v.match(/^__SECRET:(\w+)__$/);
+    if (typeof v !== 'string') continue;
+    const m = v.match(/^__SECRET:(\w+)__$/);
     if (!m) { out[k] = v; continue; }
-    if (SECRET_HOSTS[m[1]] !== host) throw new Error('Klucz API może trafić wyłącznie do swojego serwisu.');
+    if (SECRET_HOSTS[m[1]] !== u.hostname || u.protocol !== 'https:') throw new Error('Klucz API może trafić wyłącznie do swojego serwisu.');
     const key = getSecret(m[1]);
     if (!key) throw new Error('Brak zapisanego klucza API. Wpisz go w Ustawieniach → AI.');
     out[k] = key;
+    secret = true;
   }
-  return out;
+  return { headers: out, secret };
 }
 
 // ─────────────────────────── pobieranie stron ───────────────────────────
-async function httpFetch(url, { method = 'GET', headers = {}, body, binary = false, timeoutMs = 45000 } = {}) {
-  if (!/^https?:\/\//i.test(url)) throw new Error('Dozwolone są tylko adresy http(s)');
+// Okno może poprosić tylko o publiczne adresy http(s): bez adresów lokalnych i sieci domowej/firmowej
+// (gdyby ktoś wstrzyknął skrypt do okna, nie dostanie się przez aplikację do routera ani usług na komputerze).
+const MAX_RESPONSE_BYTES = 30 * 1024 * 1024;
+const METHODS = new Set(['GET', 'POST', 'HEAD']);
+function isPrivateHost(host) {
+  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal') || h === '0.0.0.0') return true;
+  const m = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+  }
+  if (h.includes(':')) return h === '::1' || h === '::' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h) || h.startsWith('::ffff:');
+  return false;
+}
+
+async function readLimited(res, limit) {
+  const len = Number(res.headers.get('content-length') || 0);
+  if (len > limit) throw Object.assign(new Error(`plik zbyt duży (${Math.round(len / 1048576)} MB), analiza tylko na podstawie metadanych`), { tooLarge: true });
+  if (!res.body) return Buffer.alloc(0);
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of res.body) {
+    total += chunk.length;
+    if (total > limit) throw Object.assign(new Error(`plik zbyt duży (ponad ${Math.round(limit / 1048576)} MB), analiza tylko na podstawie metadanych`), { tooLarge: true });
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks.map((c) => Buffer.from(c)), total);
+}
+
+async function httpFetch(url, { method = 'GET', headers = {}, body, binary = false, timeoutMs = 45000, maxBytes } = {}) {
+  let u;
+  try { u = new URL(url); } catch (_) { throw new Error('Niepoprawny adres'); }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('Dozwolone są tylko adresy http(s)');
+  if (isPrivateHost(u.hostname)) throw new Error('Adresy lokalne i sieci wewnętrznej są zablokowane');
+  const m = String(method).toUpperCase();
+  if (!METHODS.has(m)) throw new Error('Niedozwolona metoda HTTP');
+  const filled = fillSecrets(url, headers);
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  const timer = setTimeout(() => ctl.abort(), Math.min(Math.max(Number(timeoutMs) || 45000, 1000), 10 * 60 * 1000));
   try {
-    const res = await net.fetch(url, { method, headers: fillSecrets(url, headers), body, signal: ctl.signal, redirect: 'follow' });
+    // Zapytanie z kluczem API nie może pójść za przekierowaniem: klucz trafiłby pod inny adres.
+    const res = await net.fetch(url, { method: m, headers: filled.headers, body, signal: ctl.signal, redirect: filled.secret ? 'error' : 'follow' });
+    if (res.redirected && isPrivateHost(new URL(res.url).hostname)) throw new Error('Przekierowanie na adres lokalny zostało zablokowane');
     const h = {};
     res.headers.forEach((v, k) => { h[k] = v; });
-    if (binary && res.ok) return { status: res.status, headers: h, base64: Buffer.from(await res.arrayBuffer()).toString('base64') };
-    return { status: res.status, headers: h, text: await res.text() };
+    const limit = Math.min(Number(maxBytes) || MAX_RESPONSE_BYTES, MAX_RESPONSE_BYTES);
+    const buf = m === 'HEAD' ? Buffer.alloc(0) : await readLimited(res, limit);
+    // Dane binarne idą do okna jako bajty (bez kodowania base64 w obie strony).
+    if (binary && res.ok) return { status: res.status, headers: h, bytes: new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) };
+    return { status: res.status, headers: h, text: buf.toString('utf8') };
   } catch (e) {
     if (e.name === 'AbortError') throw new Error(`przekroczono limit czasu ${timeoutMs} ms`);
     throw new Error(e.message || String(e));
@@ -168,15 +229,23 @@ function createWindow() {
       win.hide();
       const st = kvGet('settings') || {};
       if (!(st.hints && st.hints.tray)) {
-        try { kvSet('settings', JSON.stringify({ ...st, hints: { ...(st.hints || {}), tray: true } })); } catch (_) { /* ignore */ }
+        kvSet('settings', JSON.stringify({ ...st, hints: { ...(st.hints || {}), tray: true } })).catch(() => {});
         notify(`${APP_NAME} działa w tle`, 'Codzienny skan prawa uruchomi się sam. Aplikację zamkniesz z menu ikony w zasobniku.');
       }
     }
   });
   win.on('maximize', () => emit('window:state', { maximized: true }));
   win.on('unmaximize', () => emit('window:state', { maximized: false }));
-  win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: 'deny' }; });
+  win.webContents.setWindowOpenHandler(({ url }) => { openExternalSafe(url); return { action: 'deny' }; });
   win.webContents.on('will-navigate', (e) => e.preventDefault());
+  win.webContents.on('will-attach-webview', (e) => e.preventDefault());
+}
+
+function openExternalSafe(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol === 'https:' || u.protocol === 'http:') shell.openExternal(u.href);
+  } catch (_) { /* niepoprawny adres */ }
 }
 
 // Tryb deweloperski: zrzuty ekranu widoków (APP_SHOTS=katalog, APP_STEPS="nazwa=<JS>,...")
@@ -294,7 +363,9 @@ function registerIpc() {
   handle('claude:path', () => findClaude(settings().ai.claudePath));
   handle('claude:browse', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Wskaż program Claude Code', properties: ['openFile'] });
-    return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+    if (r.canceled || !r.filePaths[0]) return null;
+    if (!isClaudeBinary(r.filePaths[0])) throw new Error('To nie jest program Claude Code (oczekiwano pliku claude, claude.exe lub claude.cmd).');
+    return r.filePaths[0];
   });
 
   handle('file:save', async ({ title, name, text, ext = 'json' }) => {
@@ -308,13 +379,16 @@ function registerIpc() {
     if (r.canceled || !r.filePaths[0]) return null;
     return fs.readFileSync(r.filePaths[0], 'utf8');
   });
-  handle('shell:openExternal', (url) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return true; });
+  handle('shell:openExternal', (url) => { openExternalSafe(url); return true; });
   handle('shell:openData', () => shell.openPath(dataDir));
 }
 
 app.on('second-instance', () => showWindow());
 
 app.whenReady().then(() => {
+  const { session } = require('electron');
+  session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+  session.defaultSession.setPermissionCheckHandler(() => false);
   applySettings();
   account = new ClaudeAccount({ getSettings: settings, emit });
   registerIpc();

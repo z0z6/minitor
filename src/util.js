@@ -1,3 +1,6 @@
+/** Większych PDF-ów nie pobieramy w całości: analiza idzie wtedy po tytule i metadanych. */
+export const MAX_PDF_BYTES = 6 * 1024 * 1024;
+
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Data i godzina w podanej strefie czasowej (np. Europe/Warsaw). */

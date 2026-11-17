@@ -1,9 +1,9 @@
 /**
- * Konfiguracja z dwóch warstw: plik config/default.json (domyślna) i ustawienia zapisane w bazie przez panel admina.
- * Ustawienia z panelu mają pierwszeństwo, ale źródła i reguły łączymy po identyfikatorze, dzięki czemu nowe źródła
- * dodane w przyszłych wersjach kodu pojawią się u Ciebie same (chyba że usunąłeś je w panelu).
+ * Konfiguracja z dwóch warstw: plik config/default.json (domyślna) i ustawienia zapisane w aplikacji.
+ * Ustawienia z aplikacji mają pierwszeństwo, ale źródła i reguły łączymy po identyfikatorze, dzięki czemu nowe źródła
+ * dodane w przyszłych wersjach kodu pojawią się u Ciebie same (chyba że usunąłeś je w aplikacji).
  */
-const MERGE_OBJECTS = ['school', 'schedule', 'filter', 'report', 'drafts'];
+const MERGE_OBJECTS = ['school', 'schedule', 'filter'];
 const REPLACE = ['roles', 'documents', 'watchedActs', 'keywords'];
 
 export function validateConfig(o) {
@@ -40,17 +40,4 @@ export function mergeConfig(base, override) {
     out.rules = [...override.rules, ...(base.rules ?? []).filter((r) => !mine.has(r.id))];
   }
   return out;
-}
-
-/**
- * Zmienna środowiskowa DRAFTS_AUTO (true/false) ma pierwszeństwo przed plikiem domyślnym i ustawieniami z panelu.
- * Przy "false" szkice powstają wyłącznie na prośbę zgłoszoną w panelu.
- */
-export function applyEnvOverrides(cfg, env = process.env) {
-  const v = String(env.DRAFTS_AUTO ?? '').trim().toLowerCase();
-  if (!v) return cfg;
-  const on = ['1', 'true', 'tak', 'yes'].includes(v);
-  const off = ['0', 'false', 'nie', 'no'].includes(v);
-  if (!on && !off) return cfg;
-  return { ...cfg, drafts: { ...(cfg.drafts ?? {}), auto: on } };
 }

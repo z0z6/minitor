@@ -21,8 +21,8 @@ await build({
   entryPoints: [path.join(root, 'engine', 'entry.js')],
   outfile: path.join(www, 'engine.js'),
   globalName: 'Engine',
-  // src/analyze.js czyta process.env tylko jako wartość domyślną; w przeglądarce nie ma `process`.
-  banner: { js: '/* Monitor prawa: silnik (wygenerowano z ../src, nie edytuj ręcznie) */\nvar process = globalThis.process || { env: {} };' },
+  banner: { js: '/* Monitor prawa: silnik (wygenerowano z ../src, nie edytuj ręcznie) */' },
+  minifySyntax: true,
 });
 
 await build({
@@ -30,6 +30,7 @@ await build({
   entryPoints: [path.join(root, 'engine', 'capacitor-entry.js')],
   outfile: path.join(www, 'capacitor.js'),
   globalName: 'Cap',
+  minify: true,
   banner: { js: '/* Monitor prawa: wtyczki Capacitor (wygenerowano, nie edytuj ręcznie) */' },
 });
 

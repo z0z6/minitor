@@ -1,30 +1,58 @@
-// Lokalny magazyn danych aplikacji (jeden dokument JSON). Ten sam interfejs co src/store/file.js,
-// którego używa potok skanu, plus metody dla interfejsu (stan zmian, raporty, historia).
-// Zapis wykonuje platforma: Electron (plik w folderze danych), Android (pamięć aplikacji).
+// Lokalny magazyn danych (jeden dokument JSON): potok skanu, interfejs aplikacji, CLI i testy.
+// Trwałość zapewnia platforma przez load() / save(json): Electron (plik w folderze danych), Android (pamięć aplikacji),
+// Node (src/node.js, fileBackend). Zapisy są łączone: seria zmian w krótkim czasie daje jeden zapis na dysk.
 
 const EMPTY = () => ({ version: 1, seen: {}, changes: {}, runs: {}, reports: {}, config: null, log: [] });
 const SEEN_KEEP_DAYS = 400;
 const REPORTS_KEEP = 60;
+const LOG_KEEP = 300;
+const HIDDEN = new Set(['done', 'dismissed']);
 
-export function createAppStore({ load, save }) {
+export function createStore({ load = async () => null, save = async () => {} } = {}) {
   let state = null;
-  let saving = Promise.resolve();
+  let loading = null;
+  let seenSources = null; // Set identyfikatorów źródeł, które mają już zapamiętane pozycje (dla hasSeenFrom)
+  let dirty = false;
+  let saving = null;
+
+  // Jedno wczytanie naraz: równoległe wywołania na starcie dostają ten sam stan.
   const get = async () => {
     if (state) return state;
-    const raw = await load().catch(() => null);
-    state = { ...EMPTY(), ...(raw && typeof raw === 'object' ? raw : {}) };
-    return state;
+    loading ??= Promise.resolve().then(load).catch(() => null).then((raw) => {
+      state ??= { ...EMPTY(), ...(raw && typeof raw === 'object' ? raw : {}) };
+      seenSources = null;
+      loading = null;
+      return state;
+    });
+    return loading;
   };
+
+  // Jedna pętla zapisu naraz; kolejne zmiany w trakcie zapisu trafiają do jednego, następnego zapisu.
   const persist = () => {
-    const snapshot = JSON.stringify(state);
-    saving = saving.then(() => save(snapshot)).catch((e) => console.error('Zapis danych nie powiódł się:', e));
+    dirty = true;
+    if (!saving) {
+      saving = (async () => {
+        await Promise.resolve(); // zbiera zmiany z bieżącego kroku
+        while (dirty) {
+          dirty = false;
+          try { await save(JSON.stringify(state)); } catch (e) { console.error('Zapis danych nie powiódł się:', e); }
+        }
+        saving = null;
+      })();
+    }
     return saving;
+  };
+  const flush = () => saving ?? Promise.resolve();
+
+  const sourcesWithSeen = () => {
+    if (!seenSources) seenSources = new Set(Object.values(state.seen).map((r) => r.source_id));
+    return seenSources;
   };
 
   return {
     kind: 'lokalny',
     get: () => get(),
-    flush: () => saving,
+    flush,
 
     /* interfejs potoku (src/pipeline.js) */
     async hasRun(date) { return (await get()).runs[date]?.status === 'ok'; },
@@ -32,15 +60,18 @@ export function createAppStore({ load, save }) {
       const s = await get();
       s.runs[date] = { status: 'ok', summary, at: new Date().toISOString() };
       const cut = new Date(Date.now() - SEEN_KEEP_DAYS * 86400000).toISOString();
-      for (const [k, v] of Object.entries(s.seen)) if (v.seen_at && v.seen_at < cut) delete s.seen[k];
+      let pruned = false;
+      for (const [k, v] of Object.entries(s.seen)) if (v.seen_at && v.seen_at < cut) { delete s.seen[k]; pruned = true; }
+      if (pruned) seenSources = null;
       await persist();
     },
     async getSeen(keys) { const s = await get(); return new Set(keys.filter((k) => s.seen[k])); },
-    async hasSeenFrom(sourceId) { return Object.values((await get()).seen).some((r) => r.source_id === sourceId); },
+    async hasSeenFrom(sourceId) { await get(); return sourcesWithSeen().has(sourceId); },
     async markSeen(rows) {
       const s = await get();
       const at = new Date().toISOString();
-      rows.forEach((r) => { s.seen[r.key] = { ...r, seen_at: at }; });
+      const src = sourcesWithSeen();
+      rows.forEach((r) => { s.seen[r.key] = { ...r, seen_at: at }; src.add(r.source_id); });
       await persist();
     },
     async saveChange(c) {
@@ -52,7 +83,7 @@ export function createAppStore({ load, save }) {
         workflow: prev?.workflow ?? workflow ?? 'new', note: prev?.note ?? note ?? '', handled_at: prev?.handled_at ?? handled_at ?? null,
         ...(prev ?? {}), ...fromEngine, created_at: prev?.created_at ?? new Date().toISOString(),
       };
-      await persist();
+      persist(); // bez czekania: skan nie stoi na zapisie, a recordRun() i tak czeka na komplet
     },
     async getChange(key) { return (await get()).changes[key] ?? null; },
     async listByRunDate(date) { return Object.values((await get()).changes).filter((c) => c.run_date === date); },
@@ -61,13 +92,8 @@ export function createAppStore({ load, save }) {
         .filter((c) => c.workflow !== 'dismissed' && c.effective_date && c.effective_date >= from && c.effective_date <= to)
         .sort((a, b) => a.effective_date.localeCompare(b.effective_date));
     },
-    async listOpenChanges() { return Object.values((await get()).changes).filter((c) => !['done', 'dismissed'].includes(c.workflow)); },
+    async listOpenChanges() { return Object.values((await get()).changes).filter((c) => !HIDDEN.has(c.workflow)); },
     async getConfig() { return (await get()).config ?? null; },
-    async listRecipients() { return []; },
-    async listDocuments() { return []; },
-    async listDrafts() { return []; },
-    async saveDraft() { /* szkice dokumentów nie są jeszcze obsługiwane w aplikacji */ },
-    async putDocument() { /* jw. */ },
 
     /* interfejs aplikacji */
     async listChanges() {
@@ -77,7 +103,7 @@ export function createAppStore({ load, save }) {
     async updateChange(key, patch) {
       const s = await get();
       if (!s.changes[key]) throw new Error('Nie znaleziono zmiany');
-      const done = patch.workflow === 'done' || patch.workflow === 'dismissed';
+      const done = HIDDEN.has(patch.workflow);
       s.changes[key] = { ...s.changes[key], ...patch, ...(patch.workflow ? { handled_at: done ? new Date().toISOString() : null } : {}) };
       await persist();
       return s.changes[key];
@@ -98,19 +124,21 @@ export function createAppStore({ load, save }) {
     async getReport(date) { return (await get()).reports[date] ?? null; },
     async log(entry) {
       const s = await get();
-      s.log = [...(s.log ?? []), { at: new Date().toISOString(), ...entry }].slice(-300);
+      s.log = [...(s.log ?? []), { at: new Date().toISOString(), ...entry }].slice(-LOG_KEEP);
       await persist();
     },
-    async exportAll() { return JSON.stringify(await get(), null, 2); },
+    async exportAll() { await flush(); return JSON.stringify(await get(), null, 2); },
     async importAll(json) {
       const raw = typeof json === 'string' ? JSON.parse(json) : json;
       if (!raw || typeof raw !== 'object' || !raw.changes || !raw.seen) throw new Error('To nie jest kopia danych Monitora prawa');
       state = { ...EMPTY(), ...raw };
+      seenSources = null;
       await persist();
     },
     async reset({ keepConfig = true } = {}) {
       const cfg = keepConfig ? (await get()).config : null;
       state = { ...EMPTY(), config: cfg };
+      seenSources = null;
       await persist();
     },
   };

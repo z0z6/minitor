@@ -109,7 +109,7 @@
       const r = await fetch(url, { method: o.method || 'GET', headers: o.headers, body: o.body });
       const headers = {};
       r.headers.forEach((v, k) => { headers[k] = v; });
-      if (o.binary && r.ok) return { status: r.status, headers, base64: Engine.bytesToBase64(new Uint8Array(await r.arrayBuffer())) };
+      if (o.binary && r.ok) return { status: r.status, headers, bytes: new Uint8Array(await r.arrayBuffer()) };
       return { status: r.status, headers, text: await r.text() };
     },
     secret: async (name) => localStorage.getItem(`monitor.secret.${name}`),

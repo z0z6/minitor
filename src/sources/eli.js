@@ -1,8 +1,7 @@
-import { addDays, stripHtml, truncate } from '../util.js';
+import { addDays, stripHtml, truncate, MAX_PDF_BYTES } from '../util.js';
 
 const BASE = 'https://api.sejm.gov.pl/eli';
 const MAX_TEXT_CHARS = 70000;
-const MAX_PDF_BYTES = 6 * 1024 * 1024;
 
 /**
  * Dziennik Ustaw i Monitor Polski przez publiczne API ELI Sejmu.
@@ -93,7 +92,7 @@ export function createEliSource(def) {
         return { kind: 'text', text: truncate(text, MAX_TEXT_CHARS), truncated: text.length > MAX_TEXT_CHARS };
       }
       if (c.textPDF) {
-        const buf = await ctx.http.buffer(`${base}/text.pdf`, { headers: { Accept: 'application/octet-stream' } });
+        const buf = await ctx.http.buffer(`${base}/text.pdf`, { headers: { Accept: 'application/octet-stream' }, maxBytes: MAX_PDF_BYTES });
         if (buf.length > MAX_PDF_BYTES) return { kind: 'none', note: `PDF zbyt duży (${Math.round(buf.length / 1048576)} MB), analiza tylko na podstawie metadanych` };
         return { kind: 'pdf', base64: buf.toString('base64') };
       }

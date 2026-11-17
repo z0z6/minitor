@@ -1,7 +1,6 @@
-import { addDays } from '../util.js';
+import { addDays, MAX_PDF_BYTES } from '../util.js';
 
 const API = 'https://api.sejm.gov.pl/sejm';
-const MAX_PDF_BYTES = 6 * 1024 * 1024;
 
 /**
  * Druki sejmowe (projekty ustaw rządowe, poselskie, senackie, prezydenckie) przez oficjalne API Sejmu.
@@ -42,7 +41,7 @@ export function createSejmPrintsSource(def) {
     async loadText(c, ctx) {
       const pdf = (c.attachments ?? []).find((a) => /\.pdf$/i.test(a));
       if (!pdf) return { kind: 'none', note: 'druk bez załącznika PDF' };
-      const buf = await ctx.http.buffer(`${API}/term${term}/prints/${encodeURIComponent(c.printNumber)}/${encodeURIComponent(pdf)}`, { headers: { Accept: 'application/pdf' } });
+      const buf = await ctx.http.buffer(`${API}/term${term}/prints/${encodeURIComponent(c.printNumber)}/${encodeURIComponent(pdf)}`, { headers: { Accept: 'application/pdf' }, maxBytes: MAX_PDF_BYTES });
       if (buf.length > MAX_PDF_BYTES) return { kind: 'none', note: `PDF zbyt duży (${Math.round(buf.length / 1048576)} MB), analiza tylko na podstawie tytułu` };
       return { kind: 'pdf', base64: buf.toString('base64') };
     },

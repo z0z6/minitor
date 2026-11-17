@@ -1,7 +1,7 @@
 # Monitor prawa: aplikacja (Windows, Linux, Android)
 
-Samodzielna wersja monitora prawa oświatowego. Aplikacja sama pobiera nowe akty z tych samych źródeł co silnik w GitHub Actions (`../src`),
-filtruje je, analizuje przez AI, nadaje priorytety i przypisuje zadania rolom. Wszystko dzieje się na urządzeniu: nie potrzeba Supabase, Brevo ani serwera.
+Aplikacja sama pobiera nowe akty prawne (silnik z `../src`), filtruje je, analizuje przez AI, nadaje priorytety i przypisuje zadania rolom.
+Wszystko dzieje się na urządzeniu: bez serwera, bez chmury, dane zostają lokalnie.
 
 | Platforma | Plik | Jak działa skan |
 |---|---|---|
@@ -18,11 +18,12 @@ filtruje je, analizuje przez AI, nadaje priorytety i przypisuje zadania rolom. W
 | Klucz API Gemini | komputer i telefon | darmowy poziom Google AI Studio |
 | Bez AI | wszędzie | 0 zł, tylko słowa kluczowe |
 
-Klucze API na komputerze są szyfrowane systemowo (safeStorage) i nie trafiają do okna aplikacji. Na Androidzie są w pamięci aplikacji.
+Klucze API na komputerze są szyfrowane systemowo (safeStorage) i nie trafiają do okna aplikacji. Na Linuksie bez magazynu kluczy (keyring) klucz jest tylko zakodowany w pliku dostępnym wyłącznie dla Twojego konta.
+Na Androidzie klucze są w prywatnej pamięci aplikacji, wyłączonej z kopii zapasowych.
 
 ## Budowa
 
-Pliki budują się same w GitHub Actions (workflow **Aplikacja (Windows, Linux, Android)**) po każdej zmianie w `app/`, `src/` lub `config/`.
+Pliki budują się same w GitHub Actions (workflow **Aplikacja (Windows, Linux, Android)**) po każdej zmianie w `app/`, `src/`, `config/` lub `test/`.
 Gotowe pliki są w zakładce Actions → przebieg → *Artifacts*. Tag `v*` (np. `v1.0.0`) dodatkowo tworzy wydanie (Release) ze wszystkimi plikami.
 
 ### Podpis APK (zalecany)
@@ -49,11 +50,11 @@ npm run android:prepare && (cd android && ./gradlew assembleDebug)   # APK, wyma
 
 ## Budowa kodu
 - `www/`: wspólny interfejs (styl macOS/iOS, tryb jasny i ciemny, na telefonie pasek kart na dole).
-- `engine/`: łączy silnik z `../src` z aplikacją (magazyn lokalny, klient HTTP, analizator Claude Code). `npm run build:engine` składa go w `www/engine.js`.
+- `engine/`: łączy silnik z `../src` (w tym magazyn danych i klient HTTP) z aplikacją i dodaje analizator Claude Code. `npm run build:engine` składa go w `www/engine.js`.
 - `electron/`: proces główny na komputer (pobieranie stron bez blokad CORS, zapis plików, klucze, Claude Code, zasobnik, autostart).
 - Android: Capacitor. Projekt `android/` powstaje w CI ze skryptu `scripts/android-prepare.mjs` (ikony z `android-res/`).
 
-## Czego aplikacja (jeszcze) nie robi
-- Nie wysyła e-maili i nie ma linków dla pracowników ani szkiców dokumentów: to nadal robi wersja z GitHub Actions + panel.
-- Dane z aplikacji i z panelu (Supabase) nie synchronizują się.
+## Czego aplikacja nie robi
+- Nie wysyła e-maili i nie synchronizuje danych między urządzeniami. Przeniesienie danych: Ustawienia → Ogólne → Zapisz / Wczytaj kopię.
 - Na Androidzie system nie pozwala na niezawodny skan w tle bez otwierania aplikacji, dlatego skan rusza przy jej otwarciu.
+- Szkiców zmian w dokumentach szkoły (statut, procedury) nie ma jeszcze w aplikacji. Ich logika jest w historii repozytorium (commit `ee1722d`, pliki `src/drafts.js`, `web/js/drafts-lib.js`, `web/js/docx-export.js`).

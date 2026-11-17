@@ -307,17 +307,5 @@
       "prio": "lo",
       "on": true
     }
-  ],
-  "report": {
-    "sendWhenEmpty": true
-  },
-  "drafts": {
-    "auto": false,
-    "autoMinPriority": "mid",
-    "skipStatuses": [
-      "projekt",
-      "informacja"
-    ],
-    "maxPerRun": 6
-  }
+  ]
 }

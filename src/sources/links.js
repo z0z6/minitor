@@ -1,6 +1,5 @@
-import { stripHtml, truncate } from '../util.js';
+import { stripHtml, truncate, MAX_PDF_BYTES } from '../util.js';
 
-const MAX_PDF_BYTES = 6 * 1024 * 1024;
 
 /** Linki z dowolnej strony HTML (np. BIP organu prowadzącego): zwraca {title, url}. */
 export function parseLinks(html, pageUrl) {
@@ -66,7 +65,7 @@ export function createLinksSource(def) {
     async loadText(c, ctx) {
       try {
         if (/\.pdf($|\?)/i.test(c.url)) {
-          const buf = await ctx.http.buffer(c.url, { headers: { Accept: 'application/pdf' } });
+          const buf = await ctx.http.buffer(c.url, { headers: { Accept: 'application/pdf' }, maxBytes: MAX_PDF_BYTES });
           return buf.length > MAX_PDF_BYTES ? { kind: 'none', note: 'PDF zbyt duży' } : { kind: 'pdf', base64: buf.toString('base64') };
         }
         const text = stripHtml(await ctx.http.text(c.url, { headers: { Accept: 'text/html' } }));

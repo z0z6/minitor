@@ -6,15 +6,15 @@ import { runScan } from '../../src/pipeline.js';
 import { mergeConfig, validateConfig } from '../../src/config.js';
 import { buildSources } from '../../src/sources/index.js';
 import {
-  createClaudeAnalyzer, createGeminiAnalyzer, createRulesAnalyzer,
+  createClaudeAnalyzer, createGeminiAnalyzer, createRulesAnalyzer, DEFAULT_MODEL, DEFAULT_GEMINI_MODEL,
   buildSystemPrompt, buildUserContent, normalizeAnalysis, parseJsonLoose,
 } from '../../src/analyze.js';
 import { localParts, addDays, daysBetween, plDate } from '../../src/util.js';
 import { decidePriority } from '../../src/priority.js';
-import { createAppHttp, makeResponse, bytesToBase64, base64ToBytes } from './http.js';
-import { createAppStore } from './store.js';
+import { createHttp, makeResponse, bytesToBase64, base64ToBytes } from '../../src/http.js';
+import { createStore } from '../../src/store.js';
 
-export { defaultConfig, mergeConfig, validateConfig, localParts, addDays, daysBetween, plDate, decidePriority, makeResponse, bytesToBase64, base64ToBytes, createAppStore, createAppHttp };
+export { defaultConfig, mergeConfig, validateConfig, localParts, addDays, daysBetween, plDate, decidePriority, makeResponse, bytesToBase64, base64ToBytes, createStore, createHttp };
 
 export const AI_PROVIDERS = {
   'claude-code': 'Konto Claude (Claude Code)',
@@ -47,8 +47,8 @@ export function createClaudeCodeAnalyzer({ run, model = 'sonnet' }) {
  *              claudeCode({system, prompt, files, model}) (tylko komputer), notify(title, body) }
  */
 export function createMonitor({ platform, getSettings }) {
-  const store = createAppStore({ load: () => platform.loadState(), save: (json) => platform.saveState(json) });
-  const http = createAppHttp({ fetchImpl: async (url, o) => makeResponse(await platform.fetch(url, o)) });
+  const store = createStore({ load: () => platform.loadState(), save: (json) => platform.saveState(json) });
+  const http = createHttp({ fetchImpl: async (url, o) => makeResponse(await platform.fetch(url, o)) });
   let running = null;
   const listeners = new Set();
   const emit = (ev) => listeners.forEach((fn) => { try { fn(ev); } catch (e) { console.error(e); } });
@@ -69,12 +69,12 @@ export function createMonitor({ platform, getSettings }) {
     if (ai.provider === 'claude') {
       const key = await platform.secret('anthropic');
       if (!key) throw new Error('Brak klucza API Claude. Wpisz go w Ustawieniach → AI.');
-      return createClaudeAnalyzer({ apiKey: key, model: ai.apiModel || 'claude-sonnet-5-5', http });
+      return createClaudeAnalyzer({ apiKey: key, model: ai.apiModel || DEFAULT_MODEL, http });
     }
     if (ai.provider === 'gemini') {
       const key = await platform.secret('gemini');
       if (!key) throw new Error('Brak klucza API Gemini. Wpisz go w Ustawieniach → AI.');
-      return createGeminiAnalyzer({ apiKey: key, model: ai.geminiModel || 'gemini-3.5-flash', http });
+      return createGeminiAnalyzer({ apiKey: key, model: ai.geminiModel || DEFAULT_GEMINI_MODEL, http });
     }
     return createRulesAnalyzer();
   }
@@ -98,11 +98,9 @@ export function createMonitor({ platform, getSettings }) {
         const cfg = await config();
         const an = await analyzer();
         const before = new Set((await store.listChanges()).map((c) => c.key));
-        const mailer = { name: 'aplikacja', supportsRecipients: false, async send(report) { mailer.last = report; } };
-        const result = await runScan({ cfg, http, store, analyzer: an, mailer, now: startedAt, force: true, log });
+        const result = await runScan({ cfg, http, store, analyzer: an, now: startedAt, log });
         const today = localParts(startedAt, cfg.school.timezone).date;
-        const report = mailer.last ?? result.report;
-        if (report) await store.saveReport(today, report);
+        await store.saveReport(today, result.report);
         const fresh = result.changes.filter((c) => !before.has(c.key));
         const bad = result.health.filter((h) => !h.ok);
         await store.log({ kind: 'scan', reason, analyzer: an.name, fresh: fresh.length, errors: bad.length, lines: lines.slice(-80) });

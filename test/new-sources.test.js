@@ -1,8 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
 import { createSejmPrintsSource } from '../src/sources/sejm.js';
 import { createEliRegionalSource } from '../src/sources/eli-regional.js';
 import { createRclSource, parseRclList } from '../src/sources/rcl.js';
@@ -10,9 +7,8 @@ import { createLinksSource, parseLinks } from '../src/sources/links.js';
 import { createRssSource, extractSubject } from '../src/sources/rss.js';
 import { buildSources } from '../src/sources/index.js';
 import { runScan } from '../src/pipeline.js';
-import { createFileStore } from '../src/store/file.js';
 import { createMockAnalyzer } from '../src/analyze.js';
-import { fixtureHttp, NOW, loadCfg } from './helpers.js';
+import { fixtureHttp, NOW, loadCfg, memStore } from './helpers.js';
 
 const ctx = async () => ({ http: await fixtureHttp(), today: '2026-10-02', lookbackDays: 7, cfg: await loadCfg(), now: NOW });
 
@@ -94,12 +90,9 @@ test('buildSources: włączone źródło bez adresu to czytelny błąd, wyłącz
 });
 
 async function runWith(cfgPatch) {
-  const dir = await mkdtemp(path.join(tmpdir(), 'sosw-'));
-  const sent = [];
   const cfg = { ...(await loadCfg()), ...cfgPatch };
-  const store = createFileStore(path.join(dir, 's.json'));
-  const base = { cfg, http: await fixtureHttp(), store, analyzer: createMockAnalyzer(), mailer: { send: async (r) => { sent.push(r); } } };
-  return { base, sent, run: (now) => runScan({ ...base, now }) };
+  const base = { cfg, http: await fixtureHttp(), store: memStore(), analyzer: createMockAnalyzer() };
+  return { base, run: (now) => runScan({ ...base, now }) };
 }
 
 test('potok z nowymi źródłami: druk sejmowy, projekt RCL, akt lokalny i komunikat kuratorium trafiają do raportu', async () => {
@@ -124,11 +117,11 @@ test('baseline: pierwszy skan źródła bez dat tylko zapamiętuje linki, a kole
   const cfg = await loadCfg();
   const sources = [...cfg.sources.filter((s) => !['eli-du', 'eli-mp'].includes(s.id)), { id: 'bip-test', type: 'links', name: 'BIP test', url: 'https://bip.test/uchwaly', include: 'uchwa|statut', enabled: true }]
     .filter((s) => s.id === 'bip-test');
-  const { base, sent } = await runWith({ sources });
+  const { base } = await runWith({ sources });
   const first = await runScan({ ...base, now: NOW });
   assert.equal(first.changes.length, 0);
   assert.equal(first.health[0].baselined, 1);
-  assert.match(sent[0].text, /Zainicjowane źródła/);
+  assert.match(first.report.text, /Zainicjowane źródła/);
 
   // na stronie pojawia się nowa uchwała
   const http = base.http;
