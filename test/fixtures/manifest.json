@@ -1,0 +1,101 @@
+{
+ "https://api.sejm.gov.pl/eli/acts/DU/2026": {
+  "file": "eli-du-2026-list.json"
+ },
+ "https://api.sejm.gov.pl/eli/acts/DU/2025": {
+  "file": "eli-mp-2026-list.json"
+ },
+ "https://api.sejm.gov.pl/eli/acts/MP/2026": {
+  "file": "eli-mp-2026-list.json"
+ },
+ "https://api.sejm.gov.pl/eli/acts/DU/2026/1900": {
+  "file": "eli-du-1900.json"
+ },
+ "https://api.sejm.gov.pl/eli/acts/DU/2026/1901": {
+  "file": "eli-du-1901.json"
+ },
+ "https://api.sejm.gov.pl/eli/acts/DU/2026/1905": {
+  "file": "eli-du-1905.json"
+ },
+ "https://api.sejm.gov.pl/eli/acts/DU/2026/1950": {
+  "file": "eli-du-1950.json"
+ },
+ "https://api.sejm.gov.pl/eli/acts/DU/2026/1900/text.html": {
+  "file": "eli-du-1900.html"
+ },
+ "https://api.sejm.gov.pl/eli/acts/DU/2026/1901/text.html": {
+  "file": "eli-du-1901.html"
+ },
+ "https://api.sejm.gov.pl/eli/acts/DU/2026/1950/text.html": {
+  "file": "eli-du-1950.html"
+ },
+ "https://rss.mtsz.pl/min-edukacja-komunikaty.xml": {
+  "file": "men.xml"
+ },
+ "https://rss.mtsz.pl/min-edukacja-wiadomosci.xml": {
+  "error": "HTTP 503 (symulowana awaria \u017ar\u00f3d\u0142a)"
+ },
+ "https://example.test/men/projekt-oceniania": {
+  "file": "men-page.html"
+ },
+ "https://example.test/men/spotkanie": {
+  "file": "men-page.html"
+ },
+ "https://api.sejm.gov.pl/sejm/term10/prints": {
+  "file": "sejm-prints.json"
+ },
+ "https://api.sejm.gov.pl/sejm/term10/prints/1234/1234.pdf": {
+  "file": "sejm-1234.pdf"
+ },
+ "https://edziennik.mazowieckie.pl/api/eli/acts/POL_WOJ_MZ/2026": {
+  "file": "regional-mz-2026.json"
+ },
+ "https://edziennik.mazowieckie.pl/eli/POL_WOJ_MZ/2026/9001/ogl/pol/pdf": {
+  "file": "regional-9001.pdf"
+ },
+ "https://www.kuratorium.waw.pl/dokumenty/rss/1-rss-o-3.rss": {
+  "file": "kuratorium-komunikaty.xml"
+ },
+ "https://www.kuratorium.waw.pl/dokumenty/rss/1-rss-427.rss": {
+  "file": "kuratorium-na-skroty.xml"
+ },
+ "https://example.test/kuratorium/nadzor": {
+  "file": "kuratorium-page.html"
+ },
+ "https://legislacja.rcl.gov.pl/lista?title=Edukacji": {
+  "file": "rcl-list.html"
+ },
+ "https://legislacja.rcl.gov.pl/lista?title=o%C5%9Bwiat": {
+  "file": "rcl-list.html"
+ },
+ "https://legislacja.rcl.gov.pl/lista?title=szko%C5%82": {
+  "file": "rcl-list.html"
+ },
+ "https://legislacja.rcl.gov.pl/lista?title=nauczyciel": {
+  "file": "rcl-list.html"
+ },
+ "https://legislacja.rcl.gov.pl/lista?title=uczni": {
+  "file": "rcl-list.html"
+ },
+ "https://legislacja.rcl.gov.pl/projekt/12390001": {
+  "file": "rcl-project.html"
+ },
+ "https://bip.test/uchwaly": {
+  "file": "bip-page.html"
+ },
+ "https://bip.test/uchwala/1": {
+  "file": "kuratorium-page.html"
+ },
+ "https://bip.um.ostroleka.pl/rss": {
+  "file": "bip-rss.xml"
+ },
+ "https://bip.um.ostroleka.pl/zarzadzenie/19500/zarzadzenie-nr-301-2026": {
+  "file": "bip-zarz-301.html"
+ },
+ "https://bip.um.ostroleka.pl/zarzadzenie/19501/zarzadzenie-nr-302-2026": {
+  "file": "bip-zarz-302.html"
+ },
+ "https://bip.um.ostroleka.pl/artykul/46/19502/projekt-uchwaly-na-sesje-xlv-2026": {
+  "file": "kuratorium-page.html"
+ }
+}
