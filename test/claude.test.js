@@ -24,6 +24,8 @@ test('Claude: żądanie ma klucz, wymuszone narzędzie i listę ról w prompcie'
   assert.match(seen[0].body.system, /Logopeda/);
   assert.match(seen[0].body.messages[0].content[0].text, /<tekst_aktu>/);
   assert.equal(r.roles[0].role, 'Logopeda');
+  // analiza trwa długo, a odpowiedź przychodzi w całości na końcu: limity czasu muszą to uwzględniać
+  assert.ok(seen[0].init.timeoutMs >= 120000 && seen[0].init.connectTimeoutMs >= 120000);
 });
 test('Claude: PDF trafia jako blok dokumentu, a brak tekstu obniża pewność', async () => {
   const cfg = await loadCfg();

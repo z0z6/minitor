@@ -77,11 +77,12 @@ export function makeResponse({ status, headers = {}, text, bytes, base64 }) {
 
 // Błędy sieci przetłumaczone na zrozumiały opis. `down`: serwer na pewno nieosiągalny (nie ma sensu pytać go ponownie w tym skanie).
 const NET_ERRORS = [
-  [/ERR_CONNECTION_TIMED_OUT|UND_ERR_CONNECT_TIMEOUT|ETIMEDOUT|ERR_TIMED_OUT/, 'serwer nie odpowiada (przekroczony czas połączenia)', true],
+  [/ERR_CONNECTION_TIMED_OUT|UND_ERR_CONNECT_TIMEOUT|UND_ERR_HEADERS_TIMEOUT|ETIMEDOUT|ERR_TIMED_OUT|brak odpowiedzi serwera|failed to connect|connect timed out|SocketTimeoutException/, 'serwer nie odpowiada (przekroczony czas połączenia)', true],
+  [/UnknownHostException|Unable to resolve host/, 'nie znaleziono serwera (DNS); sprawdź połączenie z internetem', true],
   [/ERR_NAME_NOT_RESOLVED|ENOTFOUND|EAI_AGAIN|ERR_NAME_RESOLUTION_FAILED/, 'nie znaleziono serwera (DNS); sprawdź połączenie z internetem', true],
   [/ERR_INTERNET_DISCONNECTED|ERR_NETWORK_CHANGED|ENETUNREACH|ERR_ADDRESS_UNREACHABLE|EHOSTUNREACH/, 'brak połączenia z internetem', true],
-  [/ERR_CONNECTION_REFUSED|ECONNREFUSED/, 'serwer odrzucił połączenie', true],
-  [/ERR_CERT_|ERR_SSL_|CERT_|UNABLE_TO_VERIFY|SELF_SIGNED|ERR_BAD_SSL/, 'problem z certyfikatem HTTPS serwera', true],
+  [/ERR_CONNECTION_REFUSED|ECONNREFUSED|ConnectException/, 'serwer odrzucił połączenie', true],
+  [/ERR_CERT_|ERR_SSL_|CERT_|UNABLE_TO_VERIFY|SELF_SIGNED|ERR_BAD_SSL|SSLHandshakeException|CertPathValidatorException/, 'problem z certyfikatem HTTPS serwera', true],
   [/ERR_CONNECTION_RESET|ECONNRESET|ERR_CONNECTION_CLOSED|ERR_EMPTY_RESPONSE|UND_ERR_SOCKET|socket hang up|other side closed/, 'połączenie zostało zerwane przez serwer', false],
   [/ERR_TOO_MANY_REDIRECTS/, 'za dużo przekierowań', false],
   [/przekroczono limit czasu|AbortError|aborted/i, 'serwer odpowiada zbyt wolno (przekroczony czas)', false],
@@ -106,16 +107,18 @@ const hostOf = (url) => { try { return new URL(url).host; } catch { return ''; }
 
 /**
  * Klient z ponawianiem prób i czytelnymi komunikatami błędów.
+ * Dwa limity czasu: `connectTimeoutMs` na pierwszą odpowiedź serwera (nagłówki) i `timeoutMs` na całe pobranie.
+ * Dzięki temu martwy serwer wykrywamy po kilkunastu sekundach, a duży PDF może się spokojnie pobierać.
  * - 429 i 5xx: do `retries` ponowień, z uwzględnieniem Retry-After;
  * - błąd sieci: jedno ponowienie; gdy serwer jest na pewno nieosiągalny (DNS, brak połączenia, odmowa, certyfikat),
  *   kolejne zapytania do niego przez `downTtlMs` kończą się od razu tym samym błędem, zamiast czekać minutami;
  * - inne błędy HTTP (4xx) i zbyt duże pliki: bez ponawiania.
  */
-export function createHttp({ fetchImpl, retries = 3, timeoutMs = 45000, userAgent = 'monitor-prawa/1.0 (monitoring prawa oswiatowego)', backoffMs = 1000, downTtlMs = 10 * 60 * 1000 }) {
+export function createHttp({ fetchImpl, retries = 3, timeoutMs = 90000, connectTimeoutMs = 20000, userAgent = 'monitor-prawa/1.0 (monitoring prawa oswiatowego)', backoffMs = 1000, downTtlMs = 10 * 60 * 1000 }) {
   if (typeof fetchImpl !== 'function') throw new Error('createHttp: brak fetchImpl');
   const down = new Map(); // host -> { message, until }
 
-  async function request(url, { method = 'GET', headers = {}, body, binary = false, maxBytes } = {}) {
+  async function request(url, { method = 'GET', headers = {}, body, binary = false, maxBytes, timeoutMs: tMs = timeoutMs, connectTimeoutMs: cMs = connectTimeoutMs } = {}) {
     const host = hostOf(url);
     const known = down.get(host);
     if (known && known.until > Date.now()) throw Object.assign(new Error(known.message), { network: true, hostDown: true });
@@ -124,7 +127,7 @@ export function createHttp({ fetchImpl, retries = 3, timeoutMs = 45000, userAgen
     for (let i = 0; i <= retries; i++) {
       let res;
       try {
-        res = await fetchImpl(url, { method, body, binary, timeoutMs, maxBytes, headers: { 'User-Agent': userAgent, ...headers } });
+        res = await fetchImpl(url, { method, body, binary, timeoutMs: tMs, connectTimeoutMs: cMs, maxBytes, headers: { 'User-Agent': userAgent, ...headers } });
       } catch (e) {
         if (e.tooLarge) throw e;
         // fetch() w Node zgłasza tylko „fetch failed”; prawdziwa przyczyna (ECONNRESET, certyfikat, DNS) siedzi w e.cause.
