@@ -1,0 +1,144 @@
+name: Aplikacja (Windows, Linux, Android)
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'app/**'
+      - 'src/**'
+      - 'config/**'
+      - '.github/workflows/app.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'src/**'
+      - 'config/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: app
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm test
+
+  linux:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npm run dist:linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Monitor-prawa-linux-AppImage
+          path: app/dist/*.AppImage
+          if-no-files-found: error
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Monitor-prawa-windows-portable
+          path: app/dist/*portable.exe
+          if-no-files-found: error
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Klucz podpisu (opcjonalny, z sekretów)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/monitor.keystore"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/monitor.keystore" >> "$GITHUB_ENV"
+            echo "GRADLE_TASK=assembleRelease" >> "$GITHUB_ENV"
+          else
+            echo "GRADLE_TASK=assembleDebug" >> "$GITHUB_ENV"
+          fi
+      - name: Projekt Androida
+        run: npm run android:prepare
+        env:
+          VERSION_CODE: ${{ github.run_number }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      - name: Budowa APK
+        working-directory: app/android
+        run: ./gradlew --no-daemon "$GRADLE_TASK"
+      - name: Nazwa pliku
+        run: |
+          V=$(node -p "require('./package.json').version")
+          mkdir -p dist
+          F=$(find android/app/build/outputs/apk -name '*.apk' | head -n1)
+          if [ "$GRADLE_TASK" = "assembleRelease" ]; then cp "$F" "dist/Monitor-prawa-$V.apk"; else cp "$F" "dist/Monitor-prawa-$V-debug.apk"; fi
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Monitor-prawa-android-apk
+          path: app/dist/*.apk
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux, windows, android]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
