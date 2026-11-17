@@ -1,0 +1,74 @@
+{
+  "name": "monitor-prawa",
+  "productName": "Monitor prawa",
+  "version": "1.0.0",
+  "description": "Monitor prawa oświatowego: codzienny skan zmian prawa z analizą AI (Windows, Linux, Android)",
+  "main": "electron/main.js",
+  "author": "projektnumer4",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/projektnumer4/monitor.git",
+    "directory": "app"
+  },
+  "private": true,
+  "scripts": {
+    "build:engine": "node scripts/build-engine.mjs",
+    "prestart": "npm run build:engine",
+    "start": "electron .",
+    "test": "node scripts/build-engine.mjs && node spec/engine.spec.js",
+    "dist:linux": "npm run build:engine && electron-builder --linux AppImage --publish never",
+    "dist:win": "npm run build:engine && electron-builder --win portable --publish never",
+    "android:prepare": "npm run build:engine && node scripts/android-prepare.mjs"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/preferences": "^8.0.1",
+    "@fontsource-variable/inter": "^5.3.0",
+    "electron": "^45.3.3",
+    "electron-builder": "^26.0.0",
+    "esbuild": "^0.28.2",
+    "fast-xml-parser": "^4.5.0"
+  },
+  "build": {
+    "appId": "pl.projektnumer4.monitorprawa",
+    "productName": "Monitor prawa",
+    "artifactName": "Monitor-prawa-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "www/**/*",
+      "package.json",
+      "!www/**/*.map"
+    ],
+    "afterPack": "build/afterPack.js",
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "executableName": "monitor-prawa",
+      "icon": "build/icon.png",
+      "category": "Office",
+      "synopsis": "Monitor prawa oświatowego",
+      "syncDesktopName": true
+    },
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "build/icon.png"
+    },
+    "portable": {
+      "artifactName": "Monitor-prawa-${version}-portable.exe"
+    }
+  },
+  "desktopName": "monitor-prawa.desktop"
+}

@@ -1,0 +1,19 @@
+{
+  "appId": "pl.projektnumer4.monitorprawa",
+  "appName": "Monitor prawa",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#f5f5f7"
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css",
+      "style": "DEFAULT"
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_monitor",
+      "iconColor": "#2F6CF0"
+    }
+  }
+}

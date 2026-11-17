@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; frame-src 'self' about: data:; connect-src 'self' https://localhost capacitor:">
+  <title>Monitor prawa</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="app" class="window">
+    <header class="titlebar">
+      <div class="titlebar-left"></div>
+      <div class="titlebar-title" id="window-title">Monitor prawa</div>
+      <div class="titlebar-right">
+        <div class="traffic" id="traffic">
+          <button class="tl min" data-act="minimize" title="Minimalizuj"><svg viewBox="0 0 10 10"><path d="M2.5 5h5"/></svg></button>
+          <button class="tl max" data-act="maximize" title="Maksymalizuj"><svg viewBox="0 0 10 10"><path d="M3 6.8V3h3.8zM7 3.2V7H3.2z"/></svg></button>
+          <button class="tl close" data-act="close" title="Zamknij"><svg viewBox="0 0 10 10"><path d="M3 3l4 4M7 3L3 7"/></svg></button>
+        </div>
+      </div>
+    </header>
+    <div class="layout">
+      <aside class="sidebar" id="sidebar"></aside>
+      <main class="content" id="content"></main>
+    </div>
+    <nav class="tabbar" id="tabbar"></nav>
+  </div>
+  <div id="sheet-root"></div>
+  <div id="toast-root"></div>
+  <script src="capacitor.js"></script>
+  <script src="engine.js"></script>
+  <script src="icons.js"></script>
+  <script src="ui.js"></script>
+  <script src="platform.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
