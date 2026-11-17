@@ -11,6 +11,12 @@ export const pluralZmiana = (n) => {
   return n === 1 ? 'zmiana' : t >= 2 && t <= 4 && !(h >= 12 && h <= 14) ? 'zmiany' : 'zmian';
 };
 
+const pozycjaCzeka = (n) => {
+  const t = n % 10;
+  const h = n % 100;
+  return n === 1 ? 'pozycja czeka' : t >= 2 && t <= 4 && !(h >= 12 && h <= 14) ? 'pozycje czekają' : 'pozycji czeka';
+};
+
 const sortChanges = (list) => [...list].sort((a, b) => ORDER[a.priority] - ORDER[b.priority] || String(a.effective_date ?? '9').localeCompare(String(b.effective_date ?? '9')));
 
 function deadlineText(c, today) {
@@ -23,7 +29,7 @@ function deadlineText(c, today) {
 }
 
 /** Buduje raport dzienny: temat, HTML (widok w aplikacji, zapis do pliku) i wersję tekstową. */
-export function renderReport({ cfg, today, changes, upcoming = [], health = [], stats = {} }) {
+export function renderReport({ cfg, today, changes, upcoming = [], health = [], stats = {}, ai = null }) {
   const list = sortChanges(changes);
   const count = (p) => list.filter((c) => c.priority === p).length;
   // Adresy pochodzą z internetu: do raportu trafiają wyłącznie http(s), nigdy np. javascript:.
@@ -64,6 +70,16 @@ export function renderReport({ cfg, today, changes, upcoming = [], health = [], 
     ? `<div style="background:#FBF0DA;color:#6b4306;border-radius:10px;padding:10px 14px;margin:18px 0;font-size:13px"><b>Uwaga: nie wszystkie źródła odpowiedziały.</b><br>${failed.map((h) => `${esc(h.name)}: ${esc(h.error)}`).join('<br>')}<br>Zmiany z tych źródeł mogą być widoczne dopiero w kolejnym raporcie.</div>`
     : '';
 
+  const warned = health.filter((h) => h.ok && h.warn);
+  const warnHtml = warned.length
+    ? `<div style="background:#F4F5F8;color:#3b4256;border-radius:10px;padding:10px 14px;margin:18px 0;font-size:13px"><b>Uwagi o źródłach</b> (pozostałe pozycje pobrano poprawnie):<br>${warned.map((h) => `${esc(h.name)}: ${esc(h.warn)}`).join('<br>')}</div>`
+    : '';
+
+  const aiMissed = ai ? ai.failed + ai.pending : 0;
+  const aiHtml = aiMissed
+    ? `<div style="background:#FBF0DA;color:#6b4306;border-radius:10px;padding:10px 14px;margin:18px 0;font-size:13px"><b>Analiza AI: ${aiMissed} ${pozycjaCzeka(aiMissed)} na następny skan.</b><br>${ai.stopped ? `Analizę wstrzymano po błędzie: ${esc(ai.stopped)}` : `Ostatni błąd: ${esc(ai.lastError)}`}<br>To nie jest błąd źródeł: te pozycje nie zostały oznaczone jako przejrzane i wrócą automatycznie.</div>`
+    : '';
+
   const baselined = health.filter((h) => h.baselined);
   const baselineHtml = baselined.length
     ? `<div style="background:#E8ECFE;color:#222B52;border-radius:10px;padding:10px 14px;margin:18px 0;font-size:13px"><b>Nowe źródła zostały zainicjowane.</b><br>${baselined.map((h) => `${esc(h.name)}: zapamiętano ${h.baselined} istniejących pozycji`).join('<br>')}<br>Zmiany będą zgłaszane od następnego skanu.</div>`
@@ -77,7 +93,7 @@ export function renderReport({ cfg, today, changes, upcoming = [], health = [], 
 <div style="max-width:680px;margin:0 auto;padding:24px 16px">
   <h1 style="font-size:22px;margin:0 0 4px">Raport z ${esc(plDate(today))}</h1>
   <p style="margin:0 0 14px;color:#5C6478;font-size:13px">${esc(cfg.school.name)} · przejrzano ${stats.reviewed ?? 0} nowych aktów z ${stats.sources ?? 0} źródeł, ${list.length} dotyczy placówki</p>
-  ${healthHtml}${baselineHtml}${body}${upcomingHtml}
+  ${aiHtml}${healthHtml}${warnHtml}${baselineHtml}${body}${upcomingHtml}
   <p style="margin:26px 0 0;font-size:12px;color:#5C6478">Streszczenia i przypisania zadań przygotował asystent AI. To pomoc w pracy, nie porada prawna: przed zmianą dokumentów sprawdź treść aktu w źródle.</p>
 </div></body></html>`;
 
@@ -97,7 +113,9 @@ export function renderReport({ cfg, today, changes, upcoming = [], health = [], 
         ])
       : ['Nie wykryto nowych zmian prawa dotyczących placówki.', '']),
     ...(baselined.length ? ['Zainicjowane źródła (zmiany od następnego skanu):', ...baselined.map((h) => `  ${h.name}: zapamiętano ${h.baselined} pozycji`), ''] : []),
+    ...(aiMissed ? [`UWAGA, analiza AI: ${aiMissed} ${pozycjaCzeka(aiMissed)} na następny skan (${ai.stopped ? `wstrzymano: ${ai.stopped}` : `ostatni błąd: ${ai.lastError}`}).`, ''] : []),
     ...(failed.length ? ['UWAGA, źródła z błędem:', ...failed.map((h) => `  ${h.name}: ${h.error}`), ''] : []),
+    ...(warned.length ? ['Uwagi o źródłach:', ...warned.map((h) => `  ${h.name}: ${h.warn}`), ''] : []),
     ...(upcoming.length ? ['Zbliżające się terminy:', ...upcoming.map((c) => `  ${deadlineText(c, today)}: ${c.title}`), ''] : []),
     'Streszczenia przygotował asystent AI. To nie jest porada prawna, sprawdź treść aktu w źródle.',
   ].join('\n');

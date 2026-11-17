@@ -174,6 +174,7 @@ async function httpFetch(url, { method = 'GET', headers = {}, body, binary = fal
     if (binary && res.ok) return { status: res.status, headers: h, bytes: new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) };
     return { status: res.status, headers: h, text: buf.toString('utf8') };
   } catch (e) {
+    if (e.tooLarge) return { status: 0, headers: {}, tooLarge: true, error: e.message };
     if (e.name === 'AbortError') throw new Error(`przekroczono limit czasu ${timeoutMs} ms`);
     throw new Error(e.message || String(e));
   } finally {

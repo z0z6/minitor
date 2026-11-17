@@ -215,8 +215,13 @@ async function runScan(reason = 'ręcznie') {
     await loadData();
     render();
     const bad = sum.health.filter((x) => !x.ok).length;
-    toast(sum.fresh.length ? `Skan zakończony: ${sum.fresh.length} ${plural(sum.fresh.length, 'nowa zmiana', 'nowe zmiany', 'nowych zmian')}${bad ? `, ${bad} ${plural(bad, 'źródło', 'źródła', 'źródeł')} z błędem` : ''}.`
-      : `Skan zakończony: brak nowych zmian${bad ? `, ${bad} ${plural(bad, 'źródło', 'źródła', 'źródeł')} z błędem` : ''}.`, bad ? 'error' : 'success', 6000);
+    const aiMissed = sum.ai ? sum.ai.failed + sum.ai.pending : 0;
+    const extra = [
+      bad ? `${bad} ${plural(bad, 'źródło', 'źródła', 'źródeł')} z błędem` : '',
+      aiMissed ? `${aiMissed} ${plural(aiMissed, 'pozycja czeka', 'pozycje czekają', 'pozycji czeka')} na analizę AI${sum.ai.stopped ? ` (${sum.ai.stopped.slice(0, 120)})` : ''}` : '',
+    ].filter(Boolean).join(', ');
+    toast(`Skan zakończony: ${sum.fresh.length ? `${sum.fresh.length} ${plural(sum.fresh.length, 'nowa zmiana', 'nowe zmiany', 'nowych zmian')}` : 'brak nowych zmian'}${extra ? `, ${extra}` : ''}.`,
+      bad || aiMissed ? 'error' : 'success', aiMissed ? 10000 : 6000);
   } catch (e) {
     state.scanning = null;
     await loadData();
@@ -566,11 +571,13 @@ function viewSources() {
       group('Źródła', cfgSources.map((s) => {
         const hl = health.get(s.id);
         const ck = checks.get(s.id);
-        const hint = ck ? (ck.ok ? `Test: OK, ${ck.count} pozycji${ck.sample ? ` (np. ${ck.sample.slice(0, 60)})` : ''}` : `Test: błąd: ${ck.error}`)
-          : hl ? (hl.ok ? `Ostatnio: ${hl.listed} na liście, ${hl.fresh} nowych, ${hl.analyzed} przeanalizowanych${hl.baselined ? `, zapamiętano ${hl.baselined}` : ''}` : `Błąd: ${hl.error}`) : 'Jeszcze nie sprawdzano';
+        const aiWait = hl ? (hl.aiFailed || 0) + (hl.aiPending || 0) : 0;
+        const hint = ck ? (ck.ok ? `Test: OK, ${ck.count} pozycji${ck.sample ? ` (np. ${ck.sample.slice(0, 60)})` : ''}${ck.warn ? `. Uwaga: ${ck.warn}` : ''}` : `Test: błąd: ${ck.error}`)
+          : hl ? (hl.ok ? `Ostatnio: ${hl.listed} na liście, ${hl.fresh} nowych, ${hl.analyzed} przeanalizowanych${hl.baselined ? `, zapamiętano ${hl.baselined}` : ''}${aiWait ? `, ${aiWait} czeka na analizę AI` : ''}${hl.warn ? `. Uwaga: ${hl.warn}` : ''}` : `Błąd: ${hl.error}`) : 'Jeszcze nie sprawdzano';
         const bad = (ck && !ck.ok) || (!ck && hl && !hl.ok);
+        const warn = !bad && ((ck && ck.warn) || (!ck && hl && (hl.warn || aiWait)));
         return row(s.name, toggle(s.enabled !== false, (v) => toggleSource(s, v)),
-          { icon: bad ? 'warn' : 'antenna', color: s.enabled === false ? 'var(--text-3)' : bad ? 'var(--red)' : 'var(--green)', hint });
+          { icon: bad || warn ? 'warn' : 'antenna', color: s.enabled === false ? 'var(--text-3)' : bad ? 'var(--red)' : warn ? 'var(--orange)' : 'var(--green)', hint });
       }), 'Wyłączone źródło nie jest pobierane przy skanie. Wiarygodność źródeł opisuje README w repozytorium.'),
       state.runs.length ? group('Historia skanów', state.runs.slice(0, 30).map((r) => {
         const bad = (r.summary.health || []).filter((x) => !x.ok).length;

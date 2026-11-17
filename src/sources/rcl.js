@@ -1,7 +1,5 @@
 import { addDays, stripHtml } from '../util.js';
 
-const lower = (s) => String(s ?? '').toLowerCase();
-
 const toIso = (dmy) => {
   const m = String(dmy).match(/(\d{2})-(\d{2})-(\d{4})/);
   return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
@@ -40,9 +38,17 @@ export function createRclSource(def) {
       const cutoff = addDays(ctx.today, -ctx.lookbackDays);
       const out = new Map();
       let parsedAny = false;
+      const errors = [];
       for (const q of queries) {
         const url = template.replace('{q}', encodeURIComponent(q));
-        const html = await ctx.http.text(url, { headers: { Accept: 'text/html' } });
+        let html;
+        try {
+          html = await ctx.http.text(url, { headers: { Accept: 'text/html' } });
+        } catch (e) {
+          // Jedno nieudane wyszukiwanie nie przekreśla pozostałych.
+          errors.push(e);
+          continue;
+        }
         const rows = parseRclList(html, url);
         if (rows.length) parsedAny = true;
         for (const r of rows) {
@@ -61,8 +67,16 @@ export function createRclSource(def) {
           });
         }
       }
+      if (errors.length === queries.length) {
+        const e = errors[0];
+        throw Object.assign(new Error(e.network
+          ? `strona RCL nie odpowiada (${e.message}). RCL bywa niedostępny; projekty z tego okresu pojawią się przy pierwszym udanym skanie, o ile mieszczą się w oknie „dni wstecz”.`
+          : e.message), { cause: e });
+      }
       if (!parsedAny) throw new Error('Nie rozpoznano żadnych wierszy na stronach RCL (możliwa zmiana układu strony)');
-      return [...out.values()];
+      const items = [...out.values()];
+      if (errors.length) items.warning = `nie udało się wykonać ${errors.length} z ${queries.length} wyszukiwań (ostatni błąd: ${errors.at(-1).message})`;
+      return items;
     },
 
     async enrich(c) {
